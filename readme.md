@@ -1,11 +1,16 @@
-# The SQL Decomposer Manifesto
+# The SQL Decomposition Manifesto
+## Complexity should be reduced and not endured
 
-Inefficiencies, easily introduced, are also easily overlooked. “As long as it works” is a good enough maxim to follow in development, as well as in wider life, until a dead end is hit. When this happens, people will generally adopt the knee-jerk viewpoint that they have exhausted all options and that the task at hand is impossible due to limitations of some kind. This document posits that in the realm of database querying, as in general life, compartmentalization of an issue into smaller independent milestones will open the door to achieving the desired outcome by way of increment.
+Inefficiencies, easily introduced, are also easily overlooked. “As long as it works” is a good enough maxim to follow in development, as well as in wider life, until a dead end is hit. When this happens, people will generally adopt the knee-jerk viewpoint that they have exhausted all options and that the task at hand is impossible due to limitations of some kind.
+
+This document posits that in the realm of database querying, as in general life, compartmentalization of an issue into smaller independent milestones will open the door to achieving the desired outcome by way of increment.
 
 Focusing on SQL, the method to implement this approach stems from a very simple belief:
 
 > If a given query is reading entirely of CTEs defined before the final `select` statement and each CTE of the script is able to independently yield a materialized table, there should be *no scenario* where the overall query times out.
 
-In these situations (timeouts and the like), the root problem can be found in a dichotomy very prevalent in the wider area of computer science, the trade-offs between space and time complexity. These failures occur because for one reason or another the database connector is not able to collect all the necessary prerequisite data and resolve the query that comes after in the time allotted to it. The naive approach in the face of this is to increase the allotted time, which would be treating the symptom and not the cause. When this kind of timeout happens, time complexity needs to be lowered, even if at the cost of space complexity. Truly, it is in situations like these where it would be a massive benefit to be able to *inject* prerequisite data as literal serialised values instead of referring to them as the not yet materialised results of a schema to be resolved at runtime so that the time complexity for these ctes are rendered negligible.
+In these situations, the root problem can be found in a dichotomy very prevalent in the wider area of computer science, the trade-offs between space and time complexity. These failures occur because for one reason or another the database connector is not able to collect all the necessary prerequisite data and resolve the query that comes after in the time allotted to it. The naive approach in the face of this is to increase the allotted time, which would be treating the symptom and not the cause. 
+
+When this kind of failure happens, time complexity needs to be lowered, even if at the cost of space complexity. Truly, it is in situations like these where it would be a massive benefit to be able to *inject* prerequisite data as literal serialised values instead of referring to them as the not yet materialised results of a schema to be resolved at runtime so that the time complexity for these ctes are rendered negligible.
 
 Enter the **Decomposer**, an application that aims to do exactly that. Very directly, it is a program that, through simple lexical analysis, is able to filter and *decompose* a given query into independent components saved locally before using the serialized data to *recompose* the desired result in memory in a faster, cleaner, and more clearly orchestrated manner.
