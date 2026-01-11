@@ -1,5 +1,4 @@
-# The SQL Decomposition Manifesto
-## Complexity should be reduced and not endured
+# The SQL Decomposition Manifesto 
 
 Inefficiencies, easily introduced, are also easily overlooked. “As long as it works” is a good enough maxim to follow in development, as well as in wider life, until a dead end is hit. When this happens, people will generally adopt the knee-jerk viewpoint that they have exhausted all options and that the task at hand is impossible due to limitations of some kind.
 
