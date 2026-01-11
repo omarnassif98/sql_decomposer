@@ -1,0 +1,12 @@
+services:
+  sql_decomposer:
+    build: ./app
+    container_name: sql_decomposer
+    ports:
+      - "60001:60001"
+    volumes:
+      - ./config:/app/config
+      - ./output:/app/output
+      - ./input:/app/input
+      - ./backlink_queries:/app/backlink_queries
+      - ./injected_queries:/app/injected_queries

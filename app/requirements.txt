@@ -1,0 +1,3 @@
+polars
+SQLAlchemy
+psycopg2-binary
