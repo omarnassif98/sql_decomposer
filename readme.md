@@ -8,4 +8,4 @@ Focusing on SQL, the method to implement this approach stems from a very simple 
 
 In these situations (timeouts and the like), the root problem can be found in a dichotomy very prevalent in the wider area of computer science: the trade-offs between space and time complexity. When a timeout happens, time complexity needs to be lowered, even if at the cost of space complexity.
 
-Enter the **Decomposer**, an application that aims to do exactly that. Very directly, it is a program that, through simple lexical analysis, is able to filter and “decompose” a given query into independent components saved locally before using the serialized data to “recompile” the desired result in memory in a faster, cleaner, and more clearly orchestrated manner.
+Enter the **Decomposer**, an application that aims to do exactly that. Very directly, it is a program that, through simple lexical analysis, is able to filter and *decompose* a given query into independent components saved locally before using the serialized data to *recompose* the desired result in memory in a faster, cleaner, and more clearly orchestrated manner.
