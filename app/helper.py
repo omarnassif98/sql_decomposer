@@ -1,8 +1,9 @@
 import os
 import json
+import traceback
 
 def InitEnvironment():
-    print('\033[1mSQL Decomposer v3.0.1\033[0m', flush=True)
+    print('\033[1mSQL Decomposer v3.1\033[0m', flush=True)
     if not os.path.exists('./config/settings.json'):
         os.makedirs('./config', exist_ok=True)
         data = ''
@@ -14,6 +15,7 @@ def InitEnvironment():
 
 def HandleError(ex : str, indents = 0):
     prefix = '  ' * indents
+    traceback.print_exc()
     print(f'{prefix}\033[31m{ex}\033[0m', flush=True)
     exit()
 

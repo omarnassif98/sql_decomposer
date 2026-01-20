@@ -1,6 +1,7 @@
 services:
   sql_decomposer:
     build: ./app
+    image: omarnassif98/sql-decomposer:v3.1
     container_name: sql_decomposer
     ports:
       - "60001:60001"
@@ -8,5 +9,7 @@ services:
       - ./config:/app/config
       - ./output:/app/output
       - ./input:/app/input
+      - ./knowledge_bank:/app/knowledge_bank
+      - ./logs:/app/logs
       - ./backlink_queries:/app/backlink_queries
       - ./injected_queries:/app/injected_queries

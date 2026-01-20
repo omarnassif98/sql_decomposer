@@ -6,6 +6,7 @@
         "host": "localhost",
         "database": "mydatabase"
     },
+    "INTERFACE_MODE" : "sequential",
     "AUTORUN" : false,
     "MATERIAL_PERMANENCE" : true,
     "BACKLINK_LOGGING" : false,
