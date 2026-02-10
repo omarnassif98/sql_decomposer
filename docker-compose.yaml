@@ -11,5 +11,5 @@ services:
       - ./input:/app/input
       - ./knowledge_bank:/app/knowledge_bank
       - ./logs:/app/logs
-      - ./backlink_queries:/app/backlink_queries
-      - ./injected_queries:/app/injected_queries
+      - ./logs/backlink_queries:/app/backlink_queries
+      - ./logs/injected_queries:/app/injected_queries

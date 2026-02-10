@@ -68,7 +68,7 @@ def SerializeDataframe(df : pl.DataFrame, name : str):
             )
         elif dtype == pl.Date:
             dummy_vals.append("'1970-01-01'::date")
-            df = df.with_columnNs(
+            df = df.with_columns(
                 (
                     pl.lit("'") +                                          
                     pl.col(col).dt.strftime("%Y-%m-%d") +         
@@ -121,10 +121,6 @@ class CTENode:
         if INJECT_LOGGING: os.makedirs(self.inject_path, exist_ok=True)
         self.AnalyzeSubquery()
 
-    def ExtractBacklinks(self):
-        lexemes = re.sub(r'\s+', ' ', self.raw_query)
-        return list(set([lex for lex in lexemes if lex in self.parent.cte_lookup]))[::-1]
-
     def AnalyzeSubquery(self):
         pattern = r"(\(\s*select\s+.*?from\s+(\w+)+.*?\))"
         inner_pattern = r"from\s+(\w+)"
@@ -133,7 +129,7 @@ class CTENode:
         query = self.raw_query
         backlink_count = 0
         for obj in list(re.finditer(pattern, self.raw_query)):
-            if obj.group(2) not in self.parent.cte_lookup.keys():
+            if obj.group(2) not in self.parent.cte_lookup.keys() and obj.group(2) not in self.parent.skeleton.banked_ctes.keys():
                 continue
             backlink_query = re.sub(inner_pattern, 'from self', obj.group(1))[1:-1]
             backlink_sub = re.sub(inner_pattern, f'from backlink_{backlink_count}', obj.group(1))
@@ -141,6 +137,8 @@ class CTENode:
             query = query.replace(obj.group(1), backlink_sub)
             backlink_count += 1
         self.transformed = query
+        if self.transformed.strip().startswith('with') and backlink_count > 0:
+            self.transformed = self.transformed.replace('with', ' ,', 1)
         for obj in serializations:
             self.backlinks.append((obj[0], obj[1]))
 
@@ -162,7 +160,10 @@ class CTENode:
         skip_flag = True
         injects = []
         for idx, (cte_name, quer) in zip(range(len(self.backlinks)),self.backlinks):
-            injects.append(SerializeDataframe(self.parent.cte_lookup[cte_name].ResolveQuery(quer), f'backlink_{idx}'))
+            if cte_name in self.parent.cte_lookup:
+                injects.append(SerializeDataframe(self.parent.cte_lookup[cte_name].ResolveQuery(quer), f'backlink_{idx}'))
+            else:
+                injects.append(SerializeDataframe(self.parent.skeleton.banked_ctes[cte_name].ResolveQuery(quer), f'backlink_{idx}'))
         if BACKLINK_LOGGING : LogQuery(self.transformed, f'{self.backlink_path}', self.name)
         
         injected_pref = ''
@@ -180,14 +181,18 @@ class CTENode:
             print('    Serialization not found, skipping is not an option', flush=True)
             skip_flag = False
 
-        if(skip_flag and not AUTORUN):
+        if skip_flag:
+            if AUTORUN: return
             choice = input('    Serialializtion detected. Want to skip materialization? (y)')
-            if choice == 'y': return
+            if choice == 'y': 
+                print(self.df, flush=True)
+                return
         try:
             print('    Fetching', flush=True)
             self.df = pl.read_database(
                 query = self.transformed,
-                connection = self.parent.skeleton.conn
+                connection = self.parent.skeleton.conn,
+                infer_schema_length=None
             )
         except errors.StatementTooComplex as ex:
             HandleError('Statement too complex, avoid multi-indexing')
@@ -217,7 +222,9 @@ class QueryStruct:
         self.skeleton = parent
         self.name = name
         self.cte_lookup = {}
+        print(GetQueryIdxs(quer), flush=True)
         for cte_name, start, end in GetQueryIdxs(quer):
+            print(f'{cte_name}, {start}, {end}', flush=True)
             self.cte_lookup[cte_name] = CTENode(cte_name, quer[start:end], self)
         self.recomp_quer = quer[end+1:]
         LogQuery(self.recomp_quer, f'./logs', self.skeleton.name)
@@ -260,7 +267,6 @@ class QuerySkeleton:
             print('Loaded config', flush=True)
         except Exception as ex:
             print('Malformed config', flush=True)
-            HandleError(ex)
         self.SetupBank(config)
         self.StageStructs(quer,config)
         self.StageKnowledge(config)
@@ -282,11 +288,11 @@ class QuerySkeleton:
             for b in bank:
                 banked_cte = CTENode(b, 'select 1', self)
                 banked_cte.df = pl.read_csv(f'knowledge_bank/{b}.csv')
+                print(f'\tLoaded {b} from knowlede bank', flush=True)
                 banked_cte.is_materialized = True
                 self.banked_ctes[b] = banked_cte
         except Exception as ex:
             HandleError('Invalid Bank')
-
 
 
     def StageStructs(self, quer : str, config : dict):
