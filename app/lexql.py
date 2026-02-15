@@ -1,4 +1,4 @@
-from helper import HandleError, LogQuery, RetrieveSetting
+from helper import HandleError, LogQuery, RetrieveSetting, ColorText, bcolors
 from typing import Callable
 import re
 import polars as pl
@@ -6,7 +6,7 @@ from polars._typing import ConnectionOrCursor
 from psycopg2 import errors
 import json
 import os
-from lextensions import EXTENDABLE_LOOKUP
+from lextensions import SetupExtensions
 
 AUTORUN : bool
 MATERIAL_PERMANENCE : bool
@@ -152,7 +152,7 @@ class CTENode:
         if self.is_materialized:
             try:
                 self.df = pl.read_csv(materialization_fnames[0], try_parse_dates=True)
-                print(f' Read anchored query for {self.name}', flush=True)
+                print(ColorText(f' Read anchored query for {self.name}', bcolors.OKGREEN), flush=True)
                 return
             except Exception as ex:
                 HandleError('CTE marked as pre-materialized but csv missing')
@@ -181,10 +181,12 @@ class CTENode:
             skip_flag = False
 
         if skip_flag:
-            if AUTORUN: return
+            if AUTORUN: 
+                print(ColorText('    Using premade materialization', bcolors.OKCYAN), flush=True)
+                return
             choice = input('    Serialializtion detected. Want to skip materialization? (y)')
             if choice == 'y': 
-                print('    Skipping', flush=True)
+                print(ColorText('    Skipping', bcolors.OKCYAN), flush=True)
                 return
         try:
             print('    Fetching', flush=True)
@@ -193,11 +195,11 @@ class CTENode:
                 connection = self.parent.skeleton.conn,
                 infer_schema_length=None
             )
+            print(ColorText('    Fetched', bcolors.OKGREEN), flush=True)
         except errors.StatementTooComplex as ex:
             HandleError('Statement too complex, avoid multi-indexing')
         except Exception as ex:
-            LogQuery(str(ex), './logs', 'error_log')
-            HandleError('ERROR LOGGED',2)
+            HandleError('ERROR LOGGED')
         for mat_name in materialization_fnames:
             self.df.write_csv(mat_name)
         self.is_materialized = True
@@ -241,7 +243,7 @@ class QueryStruct:
             return
         print(' Recomposing', flush=True)
         self.df = sql_sandbox.execute(self.recomp_quer).collect()
-        print(' Recomposed', flush=True)
+        print(ColorText(' Recomposed', bcolors.OKGREEN), flush=True)
         self.df.write_csv(f'./output/{self.skeleton.name}/{'' if self.name == '' else f'{self.name}/'}{'final' if self.name == '' else self.name}.csv')
 
 
@@ -265,15 +267,10 @@ class QuerySkeleton:
         self.steps = []
         self.mat_paths = []
         try:
-            config = json.loads(text[:start_idx])
-            for k in config:
-                print(f'{k} is proposed', flush=True)
-                if k not in EXTENDABLE_LOOKUP:
-                    print(f'{k} is not an extendable')
-                    continue
-                EXTENDABLE_LOOKUP[k](self, config[k])
+            conf = json.loads(text[:start_idx])
+            SetupExtensions(self, conf)
         except Exception as ex:
-            HandleError(ex)
+            HandleError('JSON Error')
 
         if len(self.steps) == 0 : self.steps.append(QueryStruct(self, self.quer, 'default'))
         self.mat_paths.insert(0,f'./output/{self.name}')

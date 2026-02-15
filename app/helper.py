@@ -2,8 +2,20 @@ import os
 import json
 import traceback
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
 def InitEnvironment():
-    print('\033[1mSQL Decomposer v3.1.1\033[0m', flush=True)
+    print(ColorText('SQL Decomposer v3.2', bcolors.BOLD), flush=True)
     if not os.path.exists('./config/settings.json'):
         os.makedirs('./config', exist_ok=True)
         data = ''
@@ -14,10 +26,12 @@ def InitEnvironment():
         HandleError('Config missing, populating with template data, ensure mounted volume points to /app/config')
 
 def HandleError(ex : str, indents = 0):
-    prefix = '  ' * indents
-    traceback.print_exc()
-    print(f'{prefix}\033[31m{ex}\033[0m', flush=True)
+    LogQuery(traceback.format_exc(), './logs', 'error_log')
+    print(ColorText(ex, bcolors.FAIL), flush=True)
     exit()
+
+def ColorText(msg, dec : bcolors):
+    return f'{dec}{msg}{bcolors.ENDC}'
 
 def LogQuery(quer : str, path : str, title : str):
     os.makedirs(path, exist_ok=True)

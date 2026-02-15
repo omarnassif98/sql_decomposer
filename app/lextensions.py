@@ -1,25 +1,24 @@
 import os
-from helper import HandleError
+from helper import HandleError, ColorText, bcolors
 import polars as pl
 import shutil
 import subprocess
 import sys
 import lexql
 
-def ApplyVariant(skel:'QuerySkeleton', val : str):
+def ApplyVariant(skel: 'QuerySkeleton', val : str):
     skel.name += f'_{val}'
 
 def CleanMaterialization(skel: 'QuerySkeleton', val):
         shutil.rmtree(f'./output/{skel.name}')
-        print(f'Cleaned {skel.name} material')
     
 def SetupBank(skel : 'QuerySkeleton', val : list[str]):
     os.makedirs('knowledge_bank', exist_ok=True)
     try:
         for b in val:
-            banked_cte = CTENode(b, 'select 1', skel)
+            banked_cte = lexql.CTENode(b, 'select 1', skel)
             banked_cte.df = pl.read_csv(f'knowledge_bank/{b}.csv', try_parse_dates=True)
-            print(f'\tLoaded {b} from knowlede bank', flush=True)
+            print(ColorText(f'    Loaded {b} from knowlede bank', bcolors.OKGREEN), flush=True)
             banked_cte.is_materialized = True
             skel.banked_ctes[b] = banked_cte
     except Exception as ex:
@@ -40,7 +39,7 @@ def StageRepeater(skel : 'QuerySkeleton', repeater_params : dict):
     anchors = repeater_params['anchored_ctes']
     for cte_name in anchors:
         ctes = [struct.cte_lookup[cte_name] for struct in skel.steps]
-        seeded_outputs = [f'./{'output' if MATERIAL_PERMANENCE else 'eph_materializations'}/{cte.parent.skeleton.name}/{'' if cte.parent.name == '' else f'{cte.parent.name}/'}materializations' for cte in ctes]
+        seeded_outputs = [f'./{'output' if lexql.MATERIAL_PERMANENCE else 'eph_materializations'}/{cte.parent.skeleton.name}/{'' if cte.parent.name == '' else f'{cte.parent.name}/'}materializations' for cte in ctes]
         ctes[0].mat_paths = seeded_outputs
         def callback():
             for cte in ctes[1:]:
@@ -83,11 +82,19 @@ def StagePost(skel : 'QuerySkeleton', post_ex : dict):
         print('Finished subprocess', flush=True)
     skel.post_funcs.append(post)
 
-EXTENDABLE_LOOKUP = {
-    'variant' : ApplyVariant,
-    'clean' : CleanMaterialization,
-    'banked' : SetupBank,
-    'repeater_params' : StageRepeater,
-    'knowledge_bank' : StageKnowledge,
-    'post_exec' : StagePost
+
+
+extensionLookup = {
+    'clean' : (CleanMaterialization,1),
+    'variant' : (ApplyVariant, 2),
+    'banked' : (SetupBank,3),
+    'repeater_params' : (StageRepeater,4),
+    'knowledge_bank' : (StageKnowledge,5),
+    'post_exec' : (StagePost,6)
 }
+
+def SetupExtensions(skel : 'QuerySkeleton', conf : dict):
+    chain = sorted([(extensionLookup[k][0], conf[k], k, extensionLookup[k][1]) for k in conf if k in extensionLookup], key = lambda x: x[2])
+    for func, arg, k, _ in chain:
+        print(f'Running extension: {k}', flush=True)
+        func(skel, arg)

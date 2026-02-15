@@ -27,7 +27,7 @@ def DecomposeQuery(filename : str):
                 skel = QuerySkeleton(quer, quer_name, conn)
                 skel.Execute()
         except exc.OperationalError as ex:
-            HandleError(str(ex).splitlines()[0], 1)
+            HandleError('Operational Error')
 
 
 mode = RetrieveSetting('INTERFACE_MODE')
