@@ -6,9 +6,7 @@ from polars._typing import ConnectionOrCursor
 from psycopg2 import errors
 import json
 import os
-import subprocess
-import sys
-import shutil
+from lextensions import EXTENDABLE_LOOKUP
 
 AUTORUN : bool
 MATERIAL_PERMANENCE : bool
@@ -57,6 +55,7 @@ def SerializeDataframe(df : pl.DataFrame, name : str):
         col = df.columns[i]
         dtype = df.dtypes[i]
         dummy_vals = []
+        print(f'{col} - {dtype}', flush=True)
         if dtype == pl.Datetime:
             dummy_vals.append("'1970-01-01'::timestamp")
             df = df.with_columns(
@@ -185,7 +184,7 @@ class CTENode:
             if AUTORUN: return
             choice = input('    Serialializtion detected. Want to skip materialization? (y)')
             if choice == 'y': 
-                print(self.df, flush=True)
+                print('    Skipping', flush=True)
                 return
         try:
             print('    Fetching', flush=True)
@@ -222,9 +221,7 @@ class QueryStruct:
         self.skeleton = parent
         self.name = name
         self.cte_lookup = {}
-        print(GetQueryIdxs(quer), flush=True)
         for cte_name, start, end in GetQueryIdxs(quer):
-            print(f'{cte_name}, {start}, {end}', flush=True)
             self.cte_lookup[cte_name] = CTENode(cte_name, quer[start:end], self)
         self.recomp_quer = quer[end+1:]
         LogQuery(self.recomp_quer, f'./logs', self.skeleton.name)
@@ -251,124 +248,47 @@ class QueryStruct:
 class QuerySkeleton:
     name : str
     conn : ConnectionOrCursor
+    quer : str
     steps : list[QueryStruct]
     banked_ctes : dict[str,CTENode]
-    post_func : Callable
+    post_funcs : list[Callable]
+    mat_paths : list[str]
+    final_df : pl.DataFrame
     def __init__(self, text : str, name : str, conn : ConnectionOrCursor):
         config = {}
         self.name = name
         self.conn = conn
         self.banked_ctes = {}
+        self.post_funcs = []
         start_idx = text.find('with')
-        quer = text[start_idx:]
+        self.quer = text[start_idx:]
         self.steps = []
+        self.mat_paths = []
         try:
             config = json.loads(text[:start_idx])
-            print('Loaded config', flush=True)
+            for k in config:
+                print(f'{k} is proposed', flush=True)
+                if k not in EXTENDABLE_LOOKUP:
+                    print(f'{k} is not an extendable')
+                    continue
+                EXTENDABLE_LOOKUP[k](self, config[k])
         except Exception as ex:
-            print('Malformed config', flush=True)
-        self.SetupBank(config)
-        self.StageStructs(quer,config)
-        self.StageKnowledge(config)
-        os.makedirs(f'./output/{self.name}', exist_ok=True)
-        self.StagePost(config)
+            HandleError(ex)
 
-        
-
-    def SetupBank(self, config : dict):
-        os.makedirs('knowledge_bank', exist_ok=True)
-        bank = list[str]
-        try:
-            bank = config['banked']
-        except Exception as ex:
-            print('No banked CTEs', flush=True)
-            return
-        
-        try:
-            for b in bank:
-                banked_cte = CTENode(b, 'select 1', self)
-                banked_cte.df = pl.read_csv(f'knowledge_bank/{b}.csv')
-                print(f'\tLoaded {b} from knowlede bank', flush=True)
-                banked_cte.is_materialized = True
-                self.banked_ctes[b] = banked_cte
-        except Exception as ex:
-            HandleError('Invalid Bank')
-
-
-    def StageStructs(self, quer : str, config : dict):
-        try:
-            if config['clean']: 
-                shutil.rmtree(f'./output/{self.name}')
-        except Exception as ex:
-            pass
-        repeater_params : dict
-        try:
-            repeater_params = config['repeater_params']
-        except Exception as ex:
-            print('No repeater_params detected, running in mono')
-            self.steps.append(QueryStruct(self,quer,''))
-            return
-           
-        for idx, step in zip(range(len(config['repeater_params']['steps'])), config['repeater_params']['steps']):
-            for k in step:
-                if isinstance(step[k], str):
-                    step[k] = f"'{step[k]}'"
-            self.steps.append(QueryStruct(self,quer.format(**step),f'part_{idx+1}'))
-
-        if 'anchored_ctes' not in config: return
-        
-        for cte_name in repeater_params['anchored_ctes']:
-            ctes = [struct.cte_lookup[cte_name] for struct in self.steps]
-            seeded_outputs = [f'./{'output' if MATERIAL_PERMANENCE else 'eph_materializations'}/{cte.parent.skeleton.name}/{'' if cte.parent.name == '' else f'{cte.parent.name}/'}materializations' for cte in ctes]
-            ctes[0].mat_paths = seeded_outputs
-            def callback():
-                for cte in ctes[1:]:
-                    cte.is_materialized = True
-                    print(f'Anchored CTE - {cte.parent.name}.{cte.name}- {cte.is_materialized}')
-            ctes[0].callbacks.append(callback)
-
-
-    def StageKnowledge(self, config : dict):
-        if 'knowledge_bank' not in config: return
-        if len(self.steps) > 1 : print('NOTICE: only first step comit to knowledge bank', flush=True)
-        for k in config['knowledge_bank']:
-            self.steps[0].cte_lookup[k].mat_paths.append(f'./knowledge_bank/')
-        print('Staged knowlege bank')
-
-    def StagePost(self, config : dict):
-        if 'post_exec' not in config:
-            print('No post_exec',flush=True)
-            self.post_func = lambda : print('No post func', flush=True)
-            return
-        post_ex = config['post_exec']
-        file = post_ex['file']
-        args = post_ex['args']
-        def post():
-            print('Starting subprocess', flush=True)
-            os.system(f'cp ./input/{file} ./output/{self.name}/{file}')
-            process = subprocess.Popen(
-                [sys.executable, f'./output/{self.name}/{file}'] + args,
-                stdout=subprocess.PIPE,
-                text=True,
-                bufsize=1
-            )
-
-            if process.stdout:
-                for line in process.stdout:
-                    print('> ' + line.strip(), flush=True)
-
-            process.wait()
-            print('Finished subprocess', flush=True)
-        self.post_func = post
-
-
+        if len(self.steps) == 0 : self.steps.append(QueryStruct(self, self.quer, 'default'))
+        self.mat_paths.insert(0,f'./output/{self.name}')
+        os.makedirs(self.mat_paths[0], exist_ok=True)
 
     def Execute(self):
         dfs = []
         for st in self.steps:
             st.Execute()
+            if len(st.df) == 0: continue
             dfs.append(st.df)
-        fin = pl.concat(dfs)
-        if len(fin) > 0: fin.write_csv(f'./output/{self.name}/final.csv')
-        self.post_func()
+        self.final_df = pl.concat(dfs)
+        if len(self.final_df) > 0: 
+            for path in self.mat_paths:
+                self.final_df.write_csv(f'{path}/{self.name}.csv')
+        for func in self.post_funcs:
+            func()
 
