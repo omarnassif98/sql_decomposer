@@ -1,17 +1,22 @@
-from typing import Protocol, Callable
+from abc import ABC, abstractmethod
+from typing import Callable
 import os
-from helper import HandleError
+from helper import HandleError, MigrateSandbox
 
-class Driver(Protocol):
+class Driver(ABC):
+    def __init__(self):
+        MigrateSandbox()
+
+    @abstractmethod
     def run(self, decomp_func : Callable[[str], None]) -> None: pass
 
-class SequentialDriver:
+class SequentialDriver(Driver):
     def run(self, decomp_func : Callable[[str], None]) -> None:
         for file in os.listdir('./input'):
             if not file.endswith('.sql'): continue
             decomp_func(file)
 
-class CommandLineDriver:
+class CommandLineDriver(Driver):
     def run(self, decomp_func : Callable[[str], None]) -> None:
         while True:
             try:

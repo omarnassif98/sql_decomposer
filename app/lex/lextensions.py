@@ -4,7 +4,8 @@ import polars as pl
 import shutil
 import subprocess
 import sys
-import lex.lexql
+import lex.lexql as lexql
+from typing import Callable
 
 def CleanMaterialization(skel: 'QuerySkeleton', val):
         if not os.path.exists(f'./output/{skel.name}'): return
@@ -24,14 +25,25 @@ def SetupBank(skel : 'QuerySkeleton', val : list[str]):
 
 
 def StageRepeater(skel : 'QuerySkeleton', repeater_params : dict):
+    name_frmt : str
+    name_frmt = 'part_{idx}'
+    if 'name_scheme' in repeater_params:
+        name_frmt = repeater_params['name_scheme']
+    name_func = lambda args: name_frmt.format(**args)
     steps = repeater_params['steps']
     for idx, step in zip(range(len(steps)), steps):
+        
+        if 'idx' not in step:
+            step['idx'] = idx + 1
+        
+        step_args = step.copy()
+
         for k in step:
             if isinstance(step[k], str):
                 step[k] = f"'{step[k]}'"
             elif isinstance(step[k], list):
                 step[k] = ','.join([str(x) for x in step[k]])
-        skel.steps.append(lexql.QueryStruct(skel,skel.quer.format(**step),f'part_{idx+1}'))
+        skel.steps.append(lexql.QueryStruct(skel,skel.quer.format(**step),name_func(step_args)))
 
     if 'anchored_ctes' not in repeater_params: return
     anchors = repeater_params['anchored_ctes']

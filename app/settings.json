@@ -10,5 +10,6 @@
     "AUTORUN" : false,
     "MATERIAL_PERMANENCE" : true,
     "BACKLINK_LOGGING" : false,
-    "INJECT_LOGGING" : false
+    "INJECT_LOGGING" : false,
+    "LEGACY_FILE_SYSTEM" : true
 }

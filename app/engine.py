@@ -8,7 +8,6 @@ from sqlalchemy import exc
 
 InitEnvironment()
 InitEngine()
-
 db_config = RetrieveSetting('db_connection')
 
 db_url = \

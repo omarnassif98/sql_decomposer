@@ -226,7 +226,6 @@ class QueryStruct:
         for cte_name, start, end in GetQueryIdxs(quer):
             self.cte_lookup[cte_name] = CTENode(cte_name, quer[start:end], self)
         self.recomp_quer = quer[end+1:]
-        LogQuery(self.recomp_quer, f'./logs', self.skeleton.name)
 
     def Execute(self):
         sql_ctx = {}
