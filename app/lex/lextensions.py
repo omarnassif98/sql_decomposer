@@ -4,12 +4,10 @@ import polars as pl
 import shutil
 import subprocess
 import sys
-import lexql
-
-def ApplyVariant(skel: 'QuerySkeleton', val : str):
-    skel.name += f'_{val}'
+import lex.lexql
 
 def CleanMaterialization(skel: 'QuerySkeleton', val):
+        if not os.path.exists(f'./output/{skel.name}'): return
         shutil.rmtree(f'./output/{skel.name}')
     
 def SetupBank(skel : 'QuerySkeleton', val : list[str]):
@@ -51,7 +49,7 @@ def StageRepeater(skel : 'QuerySkeleton', repeater_params : dict):
 def StageKnowledge(skel : 'QuerySkeleton', bank : list[str]):
     if len(skel.steps) > 1 : print('NOTICE: banking only happens after all steps are materialized', flush=True)
     for k in bank:
-        def post():
+        def post(k=k):
             dfs = []
             for st in skel.steps:
                 dfs.append(st.cte_lookup[k].df)
@@ -59,7 +57,7 @@ def StageKnowledge(skel : 'QuerySkeleton', bank : list[str]):
             kn.write_csv(f'knowledge_bank/{k}.csv')
             print(f'\t{k} has been added to knowledge bank')
         skel.post_funcs.append(post)
-    print('Staged knowlege bank')
+    print(f'Staged knowlege bank {bank}')
 
 def StagePost(skel : 'QuerySkeleton', post_ex : dict):
     file = post_ex['file']
@@ -86,7 +84,7 @@ def StagePost(skel : 'QuerySkeleton', post_ex : dict):
 
 extensionLookup = {
     'clean' : (CleanMaterialization,1),
-    'variant' : (ApplyVariant, 2),
+
     'banked' : (SetupBank,3),
     'repeater_params' : (StageRepeater,4),
     'knowledge_bank' : (StageKnowledge,5),

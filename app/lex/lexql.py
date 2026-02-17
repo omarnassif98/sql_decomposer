@@ -6,7 +6,8 @@ from polars._typing import ConnectionOrCursor
 from psycopg2 import errors
 import json
 import os
-from lextensions import SetupExtensions
+from lex.lextensions import SetupExtensions
+import shutil
 
 AUTORUN : bool
 MATERIAL_PERMANENCE : bool
@@ -55,7 +56,6 @@ def SerializeDataframe(df : pl.DataFrame, name : str):
         col = df.columns[i]
         dtype = df.dtypes[i]
         dummy_vals = []
-        print(f'{col} - {dtype}', flush=True)
         if dtype == pl.Datetime:
             dummy_vals.append("'1970-01-01'::timestamp")
             df = df.with_columns(
@@ -257,7 +257,6 @@ class QuerySkeleton:
     mat_paths : list[str]
     final_df : pl.DataFrame
     def __init__(self, text : str, name : str, conn : ConnectionOrCursor):
-        config = {}
         self.name = name
         self.conn = conn
         self.banked_ctes = {}
@@ -266,12 +265,12 @@ class QuerySkeleton:
         self.quer = text[start_idx:]
         self.steps = []
         self.mat_paths = []
+        
         try:
             conf = json.loads(text[:start_idx])
             SetupExtensions(self, conf)
         except Exception as ex:
             HandleError('JSON Error')
-
         if len(self.steps) == 0 : self.steps.append(QueryStruct(self, self.quer, 'default'))
         self.mat_paths.insert(0,f'./output/{self.name}')
         os.makedirs(self.mat_paths[0], exist_ok=True)
@@ -282,8 +281,8 @@ class QuerySkeleton:
             st.Execute()
             if len(st.df) == 0: continue
             dfs.append(st.df)
-        self.final_df = pl.concat(dfs)
-        if len(self.final_df) > 0: 
+        if len(dfs) > 0: 
+            self.final_df = pl.concat(dfs)
             for path in self.mat_paths:
                 self.final_df.write_csv(f'{path}/{self.name}.csv')
         for func in self.post_funcs:

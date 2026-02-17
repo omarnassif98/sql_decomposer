@@ -1,6 +1,7 @@
     # %%
 from helper import HandleError, InitEnvironment, RetrieveSetting
-from lexql import QuerySkeleton, InitEngine
+from lex.lexql import QuerySkeleton, InitEngine
+from drivers.driver import Driver, GetDriver
 import os
 import sqlalchemy as sa
 from sqlalchemy import exc
@@ -12,10 +13,7 @@ db_config = RetrieveSetting('db_connection')
 
 db_url = \
 f'{db_config["engine"]}://{db_config["username"]}:{db_config["password"]}@host.docker.internal:60001/{db_config["database"]}'
-
-
 sql_engine =  sa.create_engine(db_url)
-
 
 def DecomposeQuery(filename : str):
     quer_name = filename[:-4]
@@ -29,20 +27,7 @@ def DecomposeQuery(filename : str):
         except exc.OperationalError as ex:
             HandleError('Operational Error')
 
-
 mode = RetrieveSetting('INTERFACE_MODE')
-print(f'running in {mode.upper()} mode')
-match mode.lower():
-    case 'sequential':
-        for file in os.listdir('./input'):
-            if not file.endswith('.sql'): continue
-            DecomposeQuery(file)
-    case 'cli':
-        while True:
-            try:
-                q = input('Enter name of decompsed query (Ctrl + C => Enter to quit)\n\t>')
-                if not q.endswith('.sql'): q += '.sql'
-                DecomposeQuery(q.lower())
-            except KeyboardInterrupt as ex:
-                print('Quitting', flush=True)
-                exit(0)
+print(f'Mounting driver: {mode.upper()}', flush=True)
+driver = GetDriver(mode.lower())
+driver.run(decomp_func=DecomposeQuery)
