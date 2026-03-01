@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 import os
-from helper import HandleError, MigrateSandbox
+import readline
+from helper import HandleError, MigrateSandbox, ColorText, bcolors
 
 class Driver(ABC):
     def __init__(self):
@@ -17,15 +18,29 @@ class SequentialDriver(Driver):
             decomp_func(file)
 
 class CommandLineDriver(Driver):
+    def LoadHistory():
+        try:
+            readline.read_history_file('config/cli.hist')
+
+        except Exception as ex:
+            readline.write_history_file('config/cli.hist')
+            return []
+        
+    def AddToHistory(skel):
+        readline.write_history_file('config/cli.hist')
+
     def run(self, decomp_func : Callable[[str], None]) -> None:
+        CommandLineDriver.LoadHistory()
         while True:
             try:
-                q = input('Enter name of decompsed query (Ctrl + C => Enter to quit)\n\t>')
+                q = input('Enter name of decompsed query ' + ColorText('(Ctrl + C to quit)', bcolors.HEADER) + '\n\t>')
+                CommandLineDriver.AddToHistory(q)
                 if not q.endswith('.sql'): q += '.sql'
                 decomp_func(q.lower())
             except KeyboardInterrupt as ex:
-                print('Quitting', flush=True)
+                print(ColorText('Quitting', bcolors.FAIL), flush=True)
                 exit(0)
+    
 
 lookup : dict[str, Driver] 
 lookup = {

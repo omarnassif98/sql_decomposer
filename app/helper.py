@@ -2,7 +2,9 @@ import os
 import json
 import traceback
 import shutil
-
+import pathlib
+from polars import read_csv, read_parquet, DataFrame
+from typing import Callable
 class bcolors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -13,10 +15,12 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+    ITALICS = '\033[3m'
+
 
 
 def InitEnvironment():
-    print(ColorText('SQL Decomposer v3.2.1', [bcolors.BOLD]), flush=True)
+    print(ColorText('SQL Decomposer v3.3', [bcolors.BOLD]), flush=True)
     with open('settings.json', 'r') as f:
         default_data = json.load(f)
 
@@ -75,4 +79,51 @@ def MigrateSandbox():
         if not f.endswith('.sql'): continue
         os.makedirs(f'sandbox/{f.removesuffix('.sql')}/materializations', exist_ok=True)
         shutil.copy(f'input/{f}',f'sandbox/{f.removesuffix('.sql')}')
+        print(ColorText('At this point it is safe to delete the input content for ' +  f, bcolors.OKGREEN))
+        if not pathlib.Path(f'output/{f.removesuffix('.sql')}').exists(): continue
+        shutil.copytree(f'output/{f.removesuffix('.sql')}', f'sandbox/{f.removesuffix('.sql')}/materializations', dirs_exist_ok=True)
         print('Setup sandbox for ' +  ColorText(f, bcolors.HEADER))
+        print(ColorText('At this point it is safe to delete the output folder ' +  f, bcolors.OKGREEN))
+
+
+def GetOutputFolder(proj, root = False):
+    LEGACY_FILE_SYSTEM = RetrieveSetting('LEGACY_FILE_SYSTEM')
+    return  f'./output/{proj}' if LEGACY_FILE_SYSTEM else f'./sandbox/{proj}{'' if root else '/materializations'}'
+
+def GetInputFolder(proj):
+    LEGACY_FILE_SYSTEM = RetrieveSetting('LEGACY_FILE_SYSTEM')
+    return  f'./input/{proj}' if LEGACY_FILE_SYSTEM else f'./sandbox/{proj}'
+
+def ResolveDecompMethods():
+    global decomp_read_comp, decomp_write_comp
+
+
+    
+
+def DecompReadFunction(nam : str):
+    DECOMP_FORMAT = RetrieveSetting('DECOMP_FORMAT')
+    decomp_read_registry = {
+        'csv' : lambda path : (read_csv, {
+            "source": f"{path}.csv",
+            "try_parse_dates":True
+        }),
+        'parquet' : lambda path : (read_parquet, {
+            "source": f"{path}.parquet"
+        })
+    }
+    func, args = decomp_read_registry[DECOMP_FORMAT](nam)
+    return func(**args)
+
+def DecompWriteFunction(df, nam):
+    DECOMP_FORMAT = RetrieveSetting('DECOMP_FORMAT')
+    decomp_write_registry = {
+        'csv' : lambda df, path : (df.write_csv, {
+            "file": f"{path}.csv",
+            "float_scientific":False
+        }),
+        'parquet' : lambda df, path : (df.write_parquet, {
+            "file": f"{path}.parquet"
+        })
+    }
+    func, args = decomp_write_registry[DECOMP_FORMAT](df, nam)
+    return func(**args)

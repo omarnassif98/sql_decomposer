@@ -8,8 +8,8 @@
     },
     "INTERFACE_MODE" : "sequential",
     "AUTORUN" : false,
-    "MATERIAL_PERMANENCE" : true,
     "BACKLINK_LOGGING" : false,
     "INJECT_LOGGING" : false,
-    "LEGACY_FILE_SYSTEM" : true
+    "LEGACY_FILE_SYSTEM" : true,
+    "DECOMP_FORMAT" : "parquet"
 }

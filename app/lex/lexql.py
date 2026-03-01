@@ -1,4 +1,4 @@
-from helper import HandleError, LogQuery, RetrieveSetting, ColorText, bcolors
+from helper import HandleError, LogQuery, RetrieveSetting, ColorText, bcolors, GetOutputFolder, DecompReadFunction, DecompWriteFunction
 from typing import Callable
 import re
 import polars as pl
@@ -10,17 +10,14 @@ from lex.lextensions import SetupExtensions
 import shutil
 
 AUTORUN : bool
-MATERIAL_PERMANENCE : bool
 BACKLINK_LOGGING : bool
 INJECT_LOGGING : bool
 
 def InitEngine():
-    global AUTORUN, MATERIAL_PERMANENCE, BACKLINK_LOGGING, INJECT_LOGGING
-    AUTORUN, MATERIAL_PERMANENCE, BACKLINK_LOGGING, INJECT_LOGGING = RetrieveSetting(['AUTORUN', 'MATERIAL_PERMANENCE', 'BACKLINK_LOGGING', 'INJECT_LOGGING'])
+    global AUTORUN, BACKLINK_LOGGING, INJECT_LOGGING
+    AUTORUN, BACKLINK_LOGGING, INJECT_LOGGING  = RetrieveSetting(['AUTORUN', 'BACKLINK_LOGGING', 'INJECT_LOGGING'])
 
 
-
-os.makedirs('./output', exist_ok=True)
 os.makedirs('./input', exist_ok=True)
 
 def GetQueryIdxs(quer):
@@ -112,7 +109,7 @@ class CTENode:
         self.backlinks = []
         self.raw_query = query.lower()
         if not isinstance(self.parent, QueryStruct): return
-        self.mat_paths = [f'./{'output' if MATERIAL_PERMANENCE else 'eph_materializations'}/{self.parent.skeleton.name}/{'' if self.parent.name == '' else f'{self.parent.name}/'}materializations']
+        self.mat_paths = [f'./{self.parent.skeleton.mat_paths[0]}/{self.parent.name}']
         os.makedirs(self.mat_paths[0], exist_ok=True)
         self.inject_path = f'./injected_queries/{self.parent.skeleton.name}/{'' if self.parent.name == '' else f'{self.parent.name}/'}'
         if INJECT_LOGGING: os.makedirs(self.inject_path, exist_ok=True)
@@ -148,14 +145,14 @@ class CTENode:
 
     def Materialize(self):
         print(f' Resolving backlinks for {self.name}', flush=True)
-        materialization_fnames = [f'{path}/{self.name}.csv' for path in self.mat_paths]
+        materialization_fnames = [f'{path}/{self.name}' for path in self.mat_paths]
         if self.is_materialized:
             try:
-                self.df = pl.read_csv(materialization_fnames[0], try_parse_dates=True)
+                self.df = DecompReadFunction(materialization_fnames[0])
                 print(ColorText(f' Read anchored query for {self.name}', bcolors.OKGREEN), flush=True)
                 return
             except Exception as ex:
-                HandleError('CTE marked as pre-materialized but csv missing')
+                HandleError('CTE marked as pre-materialized but parquet missing')
         skip_flag = True
         injects = []
         for idx, (cte_name, quer) in zip(range(len(self.backlinks)),self.backlinks):
@@ -175,7 +172,7 @@ class CTENode:
         
         if INJECT_LOGGING : LogQuery(self.transformed, f'{self.inject_path}', self.name)
         try:
-            self.df = pl.read_csv(materialization_fnames[0], try_parse_dates=True)
+            self.df = DecompReadFunction(materialization_fnames[0])
         except Exception as ex:
             print('    Serialization not found, skipping is not an option', flush=True)
             skip_flag = False
@@ -201,7 +198,7 @@ class CTENode:
         except Exception as ex:
             HandleError('ERROR LOGGED')
         for mat_name in materialization_fnames:
-            self.df.write_csv(mat_name)
+            DecompWriteFunction(self.df, mat_name)
         self.is_materialized = True
         self.MaterializationCallback()
 
@@ -209,27 +206,56 @@ class CTENode:
         for func in self.callbacks:
             func()
 
+class RecompStruct:
+    df : pl.DataFrame
+    name : str
+    recomp_quer : str
+    quer_struct : "QueryStruct"
+    def __init__(self, name : str, quer : str, struct : "QueryStruct"):
+        self.df = pl.DataFrame()
+        self.name = name
+        self.recomp_quer = quer
+        self.quer_struct = struct
+    
+    def Execute(self, ctx : pl.SQLContext):
+        if self.recomp_quer.lower().strip() == 'pass':
+            print(' No recomposition needed')
+            return
+        print(' Recomposing ' + ColorText(self.name, bcolors.ITALICS), flush=True)
+        self.df = ctx.execute(self.recomp_quer).collect()
+        print(ColorText(' Recomposed', bcolors.OKGREEN), flush=True)
+        self.df.write_csv(f'{self.quer_struct.skeleton.mat_paths[0]}/{self.quer_struct.name}/{self.name}.csv', float_scientific=False)
+
+
+
 class QueryStruct:
     cte_lookup : dict[str, CTENode]
     raw_quer : str
-    recomp_quer : str
     name : str
-    df : pl.DataFrame
+    recomps : list[RecompStruct]
     skeleton : "QuerySkeleton"
 
     def __init__(self, parent : "QuerySkeleton", quer : str, name : str):
-        self.df = pl.DataFrame()
+        self.recomps = []
         self.raw_quer = quer
         self.skeleton = parent
         self.name = name
         self.cte_lookup = {}
         for cte_name, start, end in GetQueryIdxs(quer):
             self.cte_lookup[cte_name] = CTENode(cte_name, quer[start:end], self)
-        self.recomp_quer = quer[end+1:]
+        recomp_section = quer[end+1:]
+        recomp_pattern = r'>>\s*(\w+)\s*\n\s*((?:select|with).*?)(?=\n\s*>>|$)' # AI is a trillion dollar industry
+        matches = re.findall(recomp_pattern, recomp_section, flags=re.IGNORECASE | re.DOTALL)
+        if not matches:
+            self.recomps = [RecompStruct(self.skeleton.name, recomp_section, self)]
+        else: 
+            for nam, body in matches:
+                self.recomps.append(RecompStruct(nam,body,self))
+
 
     def Execute(self):
         sql_ctx = {}
-        print(f'Executing struct {self.name}')
+        print(f'Executing struct {self.name}', flush=True)
         for cte_name in self.cte_lookup:
             self.cte_lookup[cte_name].Materialize()
         lookup = self.skeleton.banked_ctes | self.cte_lookup
@@ -237,14 +263,9 @@ class QueryStruct:
             sql_ctx[cte_name] = lookup[cte_name].df
 
         sql_sandbox = pl.SQLContext(frames=sql_ctx)
-        if self.recomp_quer.lower().strip() == 'pass':
-            print(' No recomposition needed')
-            return
-        print(' Recomposing', flush=True)
-        self.df = sql_sandbox.execute(self.recomp_quer).collect()
-        print(ColorText(' Recomposed', bcolors.OKGREEN), flush=True)
-        self.df.write_csv(f'./output/{self.skeleton.name}/{'' if self.name == '' else f'{self.name}/'}{'final' if self.name == '' else self.name}.csv')
-
+        
+        for recomp in self.recomps:
+            recomp.Execute(sql_sandbox)
 
 class QuerySkeleton:
     name : str
@@ -254,36 +275,51 @@ class QuerySkeleton:
     banked_ctes : dict[str,CTENode]
     post_funcs : list[Callable]
     mat_paths : list[str]
-    final_df : pl.DataFrame
+    recomp_strategy : Callable
+    recomp_dfs : dict[list[pl.DataFrame]]  
     def __init__(self, text : str, name : str, conn : ConnectionOrCursor):
         self.name = name
         self.conn = conn
         self.banked_ctes = {}
         self.post_funcs = []
-        start_idx = text.find('with')
+        start_idx = text.strip().find('with')
         self.quer = text[start_idx:]
         self.steps = []
-        self.mat_paths = []
-        
+        main_mat_path = GetOutputFolder(self.name)
+
+        self.mat_paths = [main_mat_path]
+        os.makedirs(self.mat_paths[0], exist_ok=True)
+        self.recomp_strategy = QuerySkeleton.WideRecompilation
+
         try:
             conf = json.loads(text[:start_idx])
             SetupExtensions(self, conf)
         except Exception as ex:
-            HandleError('JSON Error')
+            if start_idx == 0: print(ColorText('JSON not being used', bcolors.WARNING), flush=True)
+            else: HandleError('JSON Error')
         if len(self.steps) == 0 : self.steps.append(QueryStruct(self, self.quer, 'default'))
-        self.mat_paths.insert(0,f'./output/{self.name}')
-        os.makedirs(self.mat_paths[0], exist_ok=True)
+
+    @staticmethod
+    def WideRecompilation(skel : "QuerySkeleton"):
+        print(ColorText('Running wide strategy', bcolors.OKBLUE))
+        skel.recomp_dfs = {}
+        for st in skel.steps:
+            for recomp in st.recomps:
+                if recomp.name not in skel.recomp_dfs: skel.recomp_dfs[recomp.name] = []
+                if len(recomp.df) == 0: continue
+                skel.recomp_dfs[recomp.name].append(recomp.df)
+
+        for nam in skel.recomp_dfs:
+            if len(skel.recomp_dfs[nam]) > 0: 
+                final_df = pl.concat(skel.recomp_dfs[nam])
+                for path in skel.mat_paths:
+                    final_df.write_csv(f'{path}/{nam}.csv', float_scientific=False)
+
 
     def Execute(self):
-        dfs = []
         for st in self.steps:
             st.Execute()
-            if len(st.df) == 0: continue
-            dfs.append(st.df)
-        if len(dfs) > 0: 
-            self.final_df = pl.concat(dfs)
-            for path in self.mat_paths:
-                self.final_df.write_csv(f'{path}/{self.name}.csv')
+        self.recomp_strategy(self)
         for func in self.post_funcs:
             func()
 
